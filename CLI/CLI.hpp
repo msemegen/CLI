@@ -109,6 +109,7 @@ public:
         assert(nullptr != a_read_character.function);
 #endif
 #endif
+        memset(this->line_buffer, 0x0u, sizeof(line_buffer));
     }
 
     Status update(const char* a_p_prompt, const char* a_p_command_not_found_message, Echo a_echo)
@@ -147,8 +148,8 @@ public:
                         argv[++argc] = strtok(nullptr, " ");
                     }
 
-                    for (uint32_t i = 0;
-                         i < this->callbacks_count && false == callback_found && this->line_buffer_index > 1;
+                    for (uint32_t i = 0; i < this->callbacks_count && false == callback_found &&
+                                         nullptr != argv[0] && this->line_buffer_index > 1;
                          i++)
                     {
                         if (0 == strcmp(argv[0], this->p_callbacks[i].p_name))
@@ -158,10 +159,10 @@ public:
                         }
                     }
 
-                    if (false == callback_found && this->line_buffer_index > 1)
-                    {
-                        this->line_buffer_index = 0;
+                    this->line_buffer_index = 0;
 
+                    if (false == callback_found && argc != 0)
+                    {
                         if (nullptr != a_p_command_not_found_message)
                         {
                             if (false == this->write_string.function(
@@ -177,10 +178,6 @@ public:
                         {
                             return Status::output_error;
                         }
-                    }
-                    else
-                    {
-                        this->line_buffer_index = 0;
                     }
 
                     if (false == this->write_string.function(a_p_prompt,
