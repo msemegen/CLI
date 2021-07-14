@@ -232,7 +232,6 @@ private:
 
     CLI()      = default;
     CLI(CLI&&) = default;
-    ~CLI()     = default;
 
     CLI& operator=(CLI&&) = default;
 #endif
