@@ -35,25 +35,23 @@ public:
     {
         static constexpr uint32_t max_parameters_count = 10;
         static constexpr uint32_t line_buffer_capacity = 128;
-        static constexpr char new_line_character       = '\n';
     };
 
-    enum class Status
-    {
-        ok,
-        input_error,
-        output_error
-    };
-
-    enum class Echo
+    enum class Echo : uint32_t
     {
         disabled,
         enabled
     };
 
+    enum class New_line_mode_flag : uint32_t
+    {
+        cr = 0x1u,
+        lf = 0x2u
+    };
+
     struct Write_character_handler
     {
-        using Function = bool (*)(char a_character, void* a_p_user_data);
+        using Function = void (*)(char a_character, void* a_p_user_data);
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -61,7 +59,7 @@ public:
 
     struct Write_string_handler
     {
-        using Function = uint32_t (*)(const char* a_p_string, uint32_t a_length, void* a_p_user_data);
+        using Function = void (*)(const char* a_p_string, uint32_t a_length, void* a_p_user_data);
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -69,7 +67,7 @@ public:
 
     struct Read_character_handler
     {
-        using Function = bool (*)(char* a_p_out, void* a_p_user_data);
+        using Function = uint32_t (*)(char* a_p_buffer, uint32_t a_buffer_size, void* a_p_user_data);
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -89,11 +87,15 @@ public:
     CLI(const Write_character_handler& a_write_character,
         const Write_string_handler& a_write_string,
         const Read_character_handler& a_read_character,
+        New_line_mode_flag a_new_line_mode_input,
+        New_line_mode_flag a_new_line_mode_output,
         const Callback* a_p_callbacks,
         uint32_t a_callbacks_count)
         : write_character(a_write_character)
         , write_string(a_write_string)
         , read_character(a_read_character)
+        , new_line_mode_input(a_new_line_mode_input)
+        , new_line_mode_output(a_new_line_mode_output)
         , p_callbacks(a_p_callbacks)
         , callbacks_count(a_callbacks_count)
         , line_buffer_index(0)
@@ -112,7 +114,7 @@ public:
         memset(this->line_buffer, 0x0u, sizeof(line_buffer));
     }
 
-    Status update(const char* a_p_prompt, const char* a_p_command_not_found_message, Echo a_echo)
+    void update(const char* a_p_prompt, const char* a_p_command_not_found_message, Echo a_echo)
     {
 #ifdef CLI_ASSERT
 #ifdef CML
@@ -121,108 +123,113 @@ public:
         assert(nullptr != a_p_prompt);
 #endif
 #endif
-        char c                                    = 0;
-        const char* argv[s::max_parameters_count] = { nullptr };
-        uint32_t argc                             = 0;
-        bool callback_found                       = false;
+        char c[3]  = { 0, 0, 0 };
+        uint32_t r = this->read_character.function(c, 3u, this->read_character.p_user_data);
 
-        if (true == this->read_character.function(&c, this->read_character.p_user_data))
+        if (0 != r)
         {
-            switch (c)
+            for (uint32_t i = 0; i < r; i++)
             {
-                case s::new_line_character: {
-                    this->line_buffer[this->line_buffer_index] = 0;
+                switch (c[i])
+                {
+                    case '\r': {
+                        if (New_line_mode_flag::cr == this->new_line_mode_input)
+                        {
+                            this->execute(a_p_prompt, a_p_command_not_found_message, a_echo);
+                        }
+                    }
+                    break;
+                    case '\n': {
+                        if (New_line_mode_flag::lf == this->new_line_mode_input ||
+                            (static_cast<uint32_t>(this->new_line_mode_input) ==
+                             (static_cast<uint32_t>(CLI::New_line_mode_flag::cr) |
+                              static_cast<uint32_t>(CLI::New_line_mode_flag::lf))))
+                        {
+                            this->execute(a_p_prompt, a_p_command_not_found_message, a_echo);
+                        }
+                    }
+                    break;
+                    case '\b': {
+                        if (this->line_buffer_index > 0)
+                        {
+                            this->line_buffer_index--;
+                            this->write_string.function("\b \b", 3 * sizeof(char), this->write_string.p_user_data);
+                        }
+                    }
+                    break;
+#ifdef CLI_AUTOCOMPLETION
+                    case '\t': {
+                        this->line_buffer[this->line_buffer_index] = 0;
 
-                    if (Echo::enabled == a_echo)
-                    {
-                        if (false == this->write_character.function('\n', this->write_character.p_user_data))
+                        const char* p = nullptr;
+                        bool m        = false;
+                        for (uint32_t i = 0; i < this->callbacks_count; i++)
+                        {
+                            if (nullptr == p)
+                            {
+                                p = strstr(this->p_callbacks[i].p_name, this->line_buffer);
+                                p = this->p_callbacks[i].p_name == p ? p : nullptr;
+                            }
+                            else
+                            {
+                                const char* p2 = strstr(this->p_callbacks[i].p_name, this->line_buffer);
+                                if (nullptr != p2 && this->p_callbacks[i].p_name == p2)
+                                {
+                                    if (false == m)
+                                    {
+                                        this->write_new_line();
+                                        this->write_string.function(
+                                            p, static_cast<uint32_t>(strlen(p)), this->write_string.p_user_data);
+                                    }
+                                    m = true;
+                                    this->write_character.function(' ', this->write_character.p_user_data);
+
+                                    this->write_string.function(
+                                        this->p_callbacks[i].p_name,
+                                        static_cast<uint32_t>(strlen(this->p_callbacks[i].p_name)),
+                                        this->write_string.p_user_data);
+                                }
+                            }
+                        }
+
+                        if (false == m && nullptr != p)
+                        {
+                            this->clear_line();
+
+                            uint32_t l              = static_cast<uint32_t>(strlen(p));
+                            this->line_buffer_index = l < s::line_buffer_capacity ? l : s::line_buffer_capacity;
+                            memcpy(this->line_buffer, p, this->line_buffer_index);
+
+                            this->write_string.function(
+                                a_p_prompt, static_cast<uint32_t>(strlen(a_p_prompt)), this->write_string.p_user_data);
+                            this->write_string.function(
+                                this->line_buffer, this->line_buffer_index, this->write_string.p_user_data);
+                        }
+                        else if (true == m && nullptr != p)
                         {
                             this->line_buffer_index = 0;
-                            return Status::output_error;
+                            this->write_new_line();
+                            this->write_string.function(
+                                a_p_prompt, static_cast<uint32_t>(strlen(a_p_prompt)), this->write_string.p_user_data);
                         }
                     }
-
-                    argv[argc] = strtok(this->line_buffer, " ");
-                    while (nullptr != argv[argc] && argc < s::max_parameters_count)
-                    {
-                        argv[++argc] = strtok(nullptr, " ");
-                    }
-
-                    for (uint32_t i = 0; i < this->callbacks_count && false == callback_found &&
-                                         nullptr != argv[0] && this->line_buffer_index > 1;
-                         i++)
-                    {
-                        if (0 == strcmp(argv[0], this->p_callbacks[i].p_name))
+                    break;
+#endif
+                    default: {
+                        if (this->line_buffer_index < s::line_buffer_capacity)
                         {
-                            this->p_callbacks[i].function(argv, argc, this->p_callbacks[i].p_user_data);
-                            callback_found = true;
-                        }
-                    }
+                            this->line_buffer[this->line_buffer_index++] = c[i];
 
-                    this->line_buffer_index = 0;
-
-                    if (false == callback_found && argc != 0)
-                    {
-                        if (nullptr != a_p_command_not_found_message)
-                        {
-                            if (false == this->write_string.function(
-                                             a_p_command_not_found_message,
-                                             static_cast<uint32_t>(strlen(a_p_command_not_found_message)),
-                                             this->write_string.p_user_data))
+                            if (Echo::enabled == a_echo)
                             {
-                                return Status::output_error;
-                            }
-                        }
-
-                        if (false == this->write_character.function('\n', this->write_character.p_user_data))
-                        {
-                            return Status::output_error;
-                        }
-                    }
-
-                    if (false == this->write_string.function(a_p_prompt,
-                                                             static_cast<uint32_t>(strlen(a_p_prompt)),
-                                                             this->write_string.p_user_data))
-                    {
-                        return Status::output_error;
-                    }
-                }
-                break;
-
-                case '\b': {
-                    if (this->line_buffer_index > 0)
-                    {
-                        this->line_buffer_index--;
-                        if (false ==
-                            this->write_string.function("\b \b", 3 * sizeof(char), this->write_string.p_user_data))
-                        {
-                            return Status::output_error;
-                        }
-                    }
-                }
-                break;
-
-                default: {
-                    if (this->line_buffer_index < s::line_buffer_capacity)
-                    {
-                        this->line_buffer[this->line_buffer_index++] = c;
-
-                        if (Echo::enabled == a_echo)
-                        {
-                            if (false == this->write_character.function(c, this->write_character.p_user_data))
-                            {
-                                return Status::output_error;
+                                this->write_character.function(c[i], this->write_character.p_user_data);
                             }
                         }
                     }
+                    break;
                 }
-                break;
             }
-
-            return Status::ok;
         }
-
-        return Status::input_error;
     }
 
 private:
@@ -236,10 +243,90 @@ private:
     CLI& operator=(CLI&&) = default;
 #endif
 
+    void execute(const char* a_p_prompt, const char* a_p_command_not_found_message, Echo a_echo)
+    {
+        const char* argv[s::max_parameters_count] = { nullptr };
+        uint32_t argc                             = 0;
+        bool callback_found                       = false;
+
+        this->line_buffer[this->line_buffer_index] = 0;
+
+        if (Echo::enabled == a_echo)
+        {
+            this->write_new_line();
+        }
+
+        argv[argc] = strtok(this->line_buffer, " ");
+        while (nullptr != argv[argc] && argc < s::max_parameters_count)
+        {
+            argv[++argc] = strtok(nullptr, " ");
+        }
+
+        for (uint32_t i = 0;
+             i < this->callbacks_count && false == callback_found && nullptr != argv[0] && this->line_buffer_index > 1;
+             i++)
+        {
+            if (0 == strcmp(argv[0], this->p_callbacks[i].p_name))
+            {
+                this->p_callbacks[i].function(argv, argc, this->p_callbacks[i].p_user_data);
+                callback_found = true;
+            }
+        }
+
+        this->line_buffer_index = 0;
+
+        if (false == callback_found && argc != 0)
+        {
+            if (nullptr != a_p_command_not_found_message)
+            {
+                this->write_string.function(a_p_command_not_found_message,
+                                            static_cast<uint32_t>(strlen(a_p_command_not_found_message)),
+                                            this->write_string.p_user_data);
+            }
+
+            this->write_new_line();
+        }
+
+        this->write_string.function(
+            a_p_prompt, static_cast<uint32_t>(strlen(a_p_prompt)), this->write_string.p_user_data);
+    }
+
+    void write_new_line()
+    {
+        switch (this->new_line_mode_output)
+        {
+            case New_line_mode_flag::cr: {
+                this->write_character.function('\r', this->write_character.p_user_data);
+            }
+            break;
+
+            case New_line_mode_flag::lf: {
+                this->write_character.function('\n', this->write_character.p_user_data);
+            }
+            break;
+            default: {
+                this->write_string.function("\r\n", 2 * sizeof(char), this->write_string.p_user_data);
+            }
+        }
+    }
+
+    void clear_line()
+    {
+        this->line_buffer_index = 0;
+        memset(this->line_buffer, 0x0u, s::line_buffer_capacity * sizeof(char));
+
+        this->write_character.function('\r', this->write_character.p_user_data);
+        this->write_string.function(
+            this->line_buffer, s::line_buffer_capacity * sizeof(char), this->write_string.p_user_data);
+    }
+
 private:
     Write_character_handler write_character;
     Write_string_handler write_string;
     Read_character_handler read_character;
+
+    New_line_mode_flag new_line_mode_input;
+    New_line_mode_flag new_line_mode_output;
 
     const Callback* p_callbacks;
     uint32_t callbacks_count;
@@ -247,5 +334,22 @@ private:
     char line_buffer[s::line_buffer_capacity];
     uint32_t line_buffer_index;
 };
+
+inline constexpr CLI::New_line_mode_flag operator|(CLI::New_line_mode_flag a_f1, CLI::New_line_mode_flag a_f2)
+{
+    return static_cast<CLI::New_line_mode_flag>(static_cast<uint32_t>(a_f1) | static_cast<uint32_t>(a_f2));
+}
+
+inline constexpr CLI::New_line_mode_flag operator&(CLI::New_line_mode_flag a_f1, CLI::New_line_mode_flag a_f2)
+
+{
+    return static_cast<CLI::New_line_mode_flag>(static_cast<uint32_t>(a_f1) & static_cast<uint32_t>(a_f2));
+}
+
+inline constexpr CLI::New_line_mode_flag operator|=(CLI::New_line_mode_flag& a_f1, CLI::New_line_mode_flag a_f2)
+{
+    a_f1 = a_f1 | a_f2;
+    return a_f1;
+}
 
 } // namespace modules
