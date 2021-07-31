@@ -12,6 +12,7 @@
 #define CLI_ASSERT assert
 #define CLI_AUTOCOMPLETION
 #define CLI_CAROUSEL
+#define CLI_COMMAND_PARAMETERS
 #include <CLI\CLI.hpp>
 
 void cli_write_character(char a_character, void* a_p_user_data)
@@ -45,7 +46,8 @@ uint32_t cli_read_character(char* a_p_out, uint32_t a_buffer_size, void* a_p_use
     return r;
 }
 
-void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+#ifdef CLI_COMMAND_PARAMETERS
+void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
@@ -55,7 +57,7 @@ void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void* a_p_user_da
     }
 }
 
-void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
@@ -68,10 +70,26 @@ void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void* a_p
     }
 }
 
-void cli_callback_exit(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+void cli_callback_exit(const char**, uint32_t, void*)
 {
     exit(0);
 }
+#else
+void cli_callback_test(void*)
+{
+    WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), "test\n", 5u, nullptr, nullptr);
+}
+
+void cli_callback_test_reverse(void*)
+{
+    WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), "test_reverse\n", 13u, nullptr, nullptr);
+}
+
+void cli_callback_exit(void*)
+{
+    exit(0);
+}
+#endif
 
 int main()
 {

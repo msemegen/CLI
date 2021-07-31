@@ -25,6 +25,7 @@
 #define CLI_ASSERT cml_assert
 #define CLI_AUTOCOMPLETION
 #define CLI_CAROUSEL
+#define CLI_COMMAND_PARAMETERS
 #include <CLI\CLI.hpp>
 
 namespace {
@@ -44,7 +45,7 @@ void assert_halt(void*)
         ;
 }
 
-void assert_print(const char* a_p_file, uint32_t a_line, const char* a_p_expression, void* a_p_user_data)
+void assert_print(const char* a_p_file, uint32_t a_line, const char* a_p_expression, void*)
 {
     printf("ASSERT failed: %s, LOC: %lu, expression: \"%s\"\n", a_p_file, a_line, a_p_expression);
 }
@@ -67,7 +68,8 @@ uint32_t cli_read_character(char* a_p_out, uint32_t a_buffer_size, void* a_p_use
     return p_usart->receive_bytes_polling(a_p_out, a_buffer_size).data_length_in_words;
 }
 
-void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+#ifdef CLI_COMMAND_PARAMETERS
+void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
@@ -75,13 +77,25 @@ void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void* a_p_user_da
     }
 }
 
-void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
         printf("%s\n", a_p_argv[a_argc - i - 1]);
     }
 }
+#else
+void cli_callback_test(void*)
+{
+    puts("test\n");
+}
+
+void cli_callback_test_reverse(void*)
+{
+    puts("test_reverse");
+}
+
+#endif
 
 } // namespace
 

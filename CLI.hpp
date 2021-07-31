@@ -36,8 +36,10 @@ public:
         : private cml::Non_constructible
 #endif
     {
+#ifdef CLI_COMMAND_PARAMETERS
+        static constexpr uint32_t max_parameters_count = 10u;
+#endif
         static constexpr uint32_t input_buffer_capacity    = 3u;
-        static constexpr uint32_t max_parameters_count     = 10u;
         static constexpr uint32_t line_buffer_capacity     = 128u;
         static constexpr uint32_t carousel_buffer_capacity = 5u;
 
@@ -88,6 +90,7 @@ public:
         void* p_user_data = nullptr;
     };
 
+#ifdef CLI_COMMAND_PARAMETERS
     struct Callback
     {
         using Function = void (*)(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data);
@@ -97,6 +100,17 @@ public:
         Function function = nullptr;
         void* p_user_data = nullptr;
     };
+#else
+    struct Callback
+    {
+        using Function = void (*)(void* a_p_user_data);
+
+        const char* p_name = nullptr;
+
+        Function function = nullptr;
+        void* p_user_data = nullptr;
+    };
+#endif
 
 public:
     CLI(const Write_character_handler& a_write_character,
@@ -124,7 +138,6 @@ public:
         CLI_ASSERT(nullptr != a_read_character.function);
 #endif
         memset(this->line_buffer, 0x0u, sizeof(line_buffer));
-
 #ifdef _WIN32
         GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &(this->win32_mode));
         SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), ENABLE_VIRTUAL_TERMINAL_INPUT | this->win32_mode);
@@ -323,9 +336,11 @@ private:
                  uint32_t a_command_not_found_message_lenght,
                  Echo a_echo)
     {
+#ifdef CLI_COMMAND_PARAMETERS
         const char* argv[s::max_parameters_count] = { nullptr };
         uint32_t argc                             = 0;
-        bool callback_found                       = false;
+#endif
+        bool callback_found = false;
 
         this->line_buffer[this->line_buffer_size] = 0;
 
@@ -335,12 +350,12 @@ private:
             this->carousel.push(this->line_buffer, this->line_buffer_size);
         }
 #endif
-
         if (Echo::enabled == a_echo)
         {
             this->write_new_line();
         }
 
+#ifdef CLI_COMMAND_PARAMETERS
         argv[argc] = strtok(this->line_buffer, " ");
         while (nullptr != argv[argc] && ++argc < s::max_parameters_count)
         {
@@ -357,8 +372,17 @@ private:
                 callback_found = true;
             }
         }
-
-        if (false == callback_found && argc != 0)
+#else
+        for (uint32_t i = 0; i < this->callbacks_count && false == callback_found && this->line_buffer_size > 1; i++)
+        {
+            if (0 == strcmp(this->line_buffer, this->p_callbacks[i].p_name))
+            {
+                this->p_callbacks[i].function(this->p_callbacks[i].p_user_data);
+                callback_found = true;
+            }
+        }
+#endif
+        if (false == callback_found && 0 != this->line_buffer_size)
         {
             if (nullptr != a_p_command_not_found_message)
             {
