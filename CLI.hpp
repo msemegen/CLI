@@ -13,6 +13,7 @@
 #include <string.h>
 
 #ifdef CML
+#include <cml/Non_constructible.hpp>
 #include <cml/Non_copyable.hpp>
 #endif
 
@@ -31,11 +32,24 @@ class CLI
 {
 public:
     struct s
+#ifdef CML
+        : private cml::Non_constructible
+#endif
     {
         static constexpr uint32_t input_buffer_capacity    = 3u;
         static constexpr uint32_t max_parameters_count     = 10u;
         static constexpr uint32_t line_buffer_capacity     = 128u;
         static constexpr uint32_t carousel_buffer_capacity = 5u;
+
+#ifndef CML
+        s()         = delete;
+        s(const s&) = delete;
+        s(s&&)      = delete;
+        ~s()        = delete;
+
+        s& operator=(const s&) = delete;
+        s& operator=(s&&) = delete;
+#endif
     };
 
     enum class Echo : uint32_t
