@@ -37,7 +37,7 @@ uint32_t cli_read_character(char* a_p_out, uint32_t a_buffer_size, void* a_p_use
     uint32_t r = 0;
     for (DWORD i = 0; i < items_read; i++)
     {
-        if (input_buffer[i].EventType == KEY_EVENT && TRUE == input_buffer[i].Event.KeyEvent.bKeyDown)
+        if (KEY_EVENT == input_buffer[i].EventType && TRUE == input_buffer[i].Event.KeyEvent.bKeyDown)
         {
             a_p_out[r++] = input_buffer[i].Event.KeyEvent.uChar.AsciiChar;
         }

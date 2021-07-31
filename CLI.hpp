@@ -328,9 +328,9 @@ private:
         }
 
         argv[argc] = strtok(this->line_buffer, " ");
-        while (nullptr != argv[argc] && argc < s::max_parameters_count)
+        while (nullptr != argv[argc] && ++argc < s::max_parameters_count)
         {
-            argv[++argc] = strtok(nullptr, " ");
+            argv[argc] = strtok(nullptr, " ");
         }
 
         for (uint32_t i = 0;
