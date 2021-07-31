@@ -5,10 +5,10 @@
  *   Licensed under the MIT license. See LICENSE file in the project root for details.
  */
 
-#include <Windows.h>
+#include <assert.h>
 
 #define _CRT_SECURE_NO_WARNINGS
-#include <assert.h>
+#include <Windows.h>
 
 #define CLI_ASSERT assert
 #define CLI_AUTOCOMPLETION
