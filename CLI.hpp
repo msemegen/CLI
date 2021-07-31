@@ -32,6 +32,7 @@ class CLI
 public:
     struct s
     {
+        static constexpr uint32_t input_buffer_capacity    = 3u;
         static constexpr uint32_t max_parameters_count     = 10u;
         static constexpr uint32_t line_buffer_capacity     = 128u;
         static constexpr uint32_t carousel_buffer_capacity = 5u;
@@ -132,7 +133,7 @@ public:
 #ifdef CLI_ASSERT
         CLI_ASSERT(nullptr != a_p_prompt);
 #endif
-        char c[]   = { 0, 0, 0 };
+        char c[s::input_buffer_capacity] = { 0 };
         uint32_t r = this->read_character.function(c, sizeof(c) / sizeof(c[0]), this->read_character.p_user_data);
 
         if (0 != r)
