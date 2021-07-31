@@ -6,8 +6,8 @@
  */
 
 #define _CRT_SECURE_NO_WARNINGS
-#include <assert.h>
 #include <Windows.h>
+#include <assert.h>
 
 #define CLI_ASSERT assert
 #define CLI_AUTOCOMPLETION
@@ -55,6 +55,19 @@ void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void* a_p_user_da
     }
 }
 
+void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
+{
+    for (uint32_t i = 0; i < a_argc; i++)
+    {
+        WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE),
+                     a_p_argv[a_argc - i - 1],
+                     static_cast<DWORD>(strlen(a_p_argv[a_argc - i - 1])),
+                     nullptr,
+                     nullptr);
+        WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1u, nullptr, nullptr);
+    }
+}
+
 void cli_callback_exit(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data)
 {
     exit(0);
@@ -66,9 +79,7 @@ int main()
 
     const CLI::Callback callbacks[] = { { "exit", cli_callback_exit, nullptr },
                                         { "test", cli_callback_test, nullptr },
-                                        { "test2", cli_callback_test, nullptr },
-                                        { "test3", cli_callback_test, nullptr },
-                                        { "test4", cli_callback_test, nullptr } };
+                                        { "test_reverse", cli_callback_test_reverse, nullptr } };
 
     CLI cli({ cli_write_character, nullptr },
             { cli_write_string, nullptr },
