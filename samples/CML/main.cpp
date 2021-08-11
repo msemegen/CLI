@@ -56,10 +56,10 @@ void cli_write_character(char a_character, void* a_p_user_data)
     p_usart->transmit_bytes_polling(&a_character, sizeof(a_character));
 }
 
-void cli_write_string(const char* a_p_string, uint32_t a_length, void* a_p_user_data)
+void cli_write_string(std::string_view a_string, void* a_p_user_data)
 {
     USART* p_usart = static_cast<USART*>(a_p_user_data);
-    p_usart->transmit_bytes_polling(a_p_string, a_length * sizeof(char));
+    p_usart->transmit_bytes_polling(a_string.data(), a_string.length() * sizeof(char));
 }
 
 uint32_t cli_read_character(char* a_p_out, uint32_t a_buffer_size, void* a_p_user_data)
@@ -69,19 +69,19 @@ uint32_t cli_read_character(char* a_p_out, uint32_t a_buffer_size, void* a_p_use
 }
 
 #ifdef CLI_COMMAND_PARAMETERS
-void cli_callback_test(const char** a_p_argv, uint32_t a_argc, void*)
+void cli_callback_test(std::string_view a_argv[], uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
-        printf("%s\n", a_p_argv[i]);
+        printf("%.*s\n", a_argv[i].length(), a_argv[i].data());
     }
 }
 
-void cli_callback_test_reverse(const char** a_p_argv, uint32_t a_argc, void*)
+void cli_callback_test_reverse(std::string_view a_argv[], uint32_t a_argc, void*)
 {
     for (uint32_t i = 0; i < a_argc; i++)
     {
-        printf("%s\n", a_p_argv[a_argc - i - 1]);
+        printf("%.*s\n", a_argv[a_argc - i - 1].length(), a_argv[a_argc - i - 1].data());
     }
 }
 #else
@@ -145,28 +145,21 @@ int main()
         initialize_syscalls(&iostream);
         setvbuf(stdout, nullptr, _IONBF, 0);
 
-        const CLI::Callback callbacks[] = { { "test", cli_callback_test, nullptr },
-                                            { "test_reverse", cli_callback_test_reverse, nullptr } };
+        const std::array<CLI::Callback, 2> callbacks = { CLI::Callback { "test", cli_callback_test, nullptr },
+                                                         CLI::Callback {
+                                                             "test_reverse", cli_callback_test_reverse, nullptr } };
 
         CLI cli({ cli_write_character, &iostream },
                 { cli_write_string, &iostream },
                 { cli_read_character, &iostream },
                 CLI::New_line_mode_flag::lf,
-                CLI::New_line_mode_flag::lf,
-                callbacks,
-                sizeof(callbacks) / sizeof(callbacks[0]));
+                CLI::New_line_mode_flag::lf);
 
         printf("$ ");
 
-        const char* p_prompt                    = "$ ";
-        const char* p_command_not_found_message = "> Command not found";
-        const uint32_t prompt_length            = strlen(p_prompt);
-        const uint32_t command_not_found_length = strlen(p_command_not_found_message);
-
         while (true)
         {
-            cli.update(
-                p_prompt, prompt_length, p_command_not_found_message, command_not_found_length, CLI::Echo::enabled);
+            cli.update("$ ", "> Command not found", callbacks, CLI::Echo::enabled);
         }
 
         return 0;

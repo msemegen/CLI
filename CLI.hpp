@@ -8,9 +8,10 @@
  */
 
 // std
-#include <algorithm>
-#include <stdint.h>
-#include <string.h>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <string_view>
 
 #ifdef CML
 #include <cml/Non_constructible.hpp>
@@ -76,7 +77,7 @@ public:
 
     struct Write_string_handler
     {
-        using Function = void (*)(const char* a_p_string, uint32_t a_length, void* a_p_user_data);
+        using Function = void (*)(std::string_view a_string, void* a_p_user_data);
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -93,9 +94,9 @@ public:
 #ifdef CLI_COMMAND_PARAMETERS
     struct Callback
     {
-        using Function = void (*)(const char** a_p_argv, uint32_t a_argc, void* a_p_user_data);
+        using Function = void (*)(std::string_view a_argv[], uint32_t a_argc, void* a_p_user_data);
 
-        const char* p_name = nullptr;
+        std::string_view name;
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -105,7 +106,7 @@ public:
     {
         using Function = void (*)(void* a_p_user_data);
 
-        const char* p_name = nullptr;
+        std::string_view name;
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -117,16 +118,12 @@ public:
         const Write_string_handler& a_write_string,
         const Read_character_handler& a_read_character,
         New_line_mode_flag a_new_line_mode_input,
-        New_line_mode_flag a_new_line_mode_output,
-        const Callback* a_p_callbacks,
-        uint32_t a_callbacks_count)
+        New_line_mode_flag a_new_line_mode_output)
         : write_character(a_write_character)
         , write_string(a_write_string)
         , read_character(a_read_character)
         , new_line_mode_input(a_new_line_mode_input)
         , new_line_mode_output(a_new_line_mode_output)
-        , p_callbacks(a_p_callbacks)
-        , callbacks_count(a_callbacks_count)
         , line_buffer_size(0)
 #ifdef _WIN32
         , win32_mode(0)
@@ -151,40 +148,32 @@ public:
     }
 #endif
 
-    void update(const char* a_p_prompt,
-                uint32_t a_prompt_length,
-                const char* a_p_command_not_found_message,
-                uint32_t a_command_not_found_message_lenght,
-                Echo a_echo)
+    template<size_t callbacks_count> void update(std::string_view a_prompt,
+                                                 std::string_view a_command_not_found_message,
+                                                 const std::array<Callback, callbacks_count>& a_callbacks,
+                                                 Echo a_echo)
     {
-#ifdef CLI_ASSERT
-        CLI_ASSERT(nullptr != a_p_prompt);
-#endif
         char c[s::input_buffer_capacity] = { 0 };
         uint32_t r = this->read_character.function(c, sizeof(c) / sizeof(c[0]), this->read_character.p_user_data);
 
         if (0 != r)
         {
 #ifdef CLI_CAROUSEL
-            bool ap = false;
+            bool escape_handled = false;
 #endif
-            for (uint32_t i = 0; i < r
+            for (uint32_t char_index = 0; char_index < r
 #ifdef CLI_CAROUSEL
-                                 && false == ap
+                                          && false == escape_handled
 #endif
                  ;
-                 i++)
+                 char_index++)
             {
-                switch (c[i])
+                switch (c[char_index])
                 {
                     case '\r': {
                         if (New_line_mode_flag::cr == this->new_line_mode_input)
                         {
-                            this->execute(a_p_prompt,
-                                          a_prompt_length,
-                                          a_p_command_not_found_message,
-                                          a_command_not_found_message_lenght,
-                                          a_echo);
+                            this->execute(a_prompt, a_command_not_found_message, a_callbacks, a_echo);
                             this->line_buffer_size = 0;
                         }
                     }
@@ -195,11 +184,7 @@ public:
                              (static_cast<uint32_t>(CLI::New_line_mode_flag::cr) |
                               static_cast<uint32_t>(CLI::New_line_mode_flag::lf))))
                         {
-                            this->execute(a_p_prompt,
-                                          a_prompt_length,
-                                          a_p_command_not_found_message,
-                                          a_command_not_found_message_lenght,
-                                          a_echo);
+                            this->execute(a_prompt, a_command_not_found_message, a_callbacks, a_echo);
                             this->line_buffer_size = 0;
                         }
                     }
@@ -209,64 +194,52 @@ public:
                         if (this->line_buffer_size > 0)
                         {
                             this->line_buffer_size--;
-                            this->write_string.function("\b \b", 3 * sizeof(char), this->write_string.p_user_data);
+                            this->write_string.function("\b \b", this->write_string.p_user_data);
                         }
                     }
                     break;
 #ifdef CLI_AUTOCOMPLETION
                     case '\t': {
-                        this->line_buffer_size = std::min(this->line_buffer_size, s::line_buffer_capacity - 1u);
-                        this->line_buffer[this->line_buffer_size] = 0;
+                        size_t indexes_found[callbacks_count];
+                        size_t indexes_found_count = 0;
 
-                        const char* p = nullptr;
-                        bool m        = false;
-                        for (uint32_t i = 0; i < this->callbacks_count; i++)
+                        this->line_buffer[this->line_buffer_size > s::line_buffer_capacity ? s::line_buffer_capacity :
+                                                                                             this->line_buffer_size] =
+                            0;
+                        for (size_t i = 0; i < a_callbacks.size(); i++)
                         {
-                            if (nullptr == p)
+                            if (std::string_view::npos != a_callbacks[i].name.find(this->line_buffer))
                             {
-                                p = strstr(this->p_callbacks[i].p_name, this->line_buffer);
-                                p = this->p_callbacks[i].p_name == p ? p : nullptr;
-                            }
-                            else
-                            {
-                                const char* p2 = strstr(this->p_callbacks[i].p_name, this->line_buffer);
-                                if (nullptr != p2 && this->p_callbacks[i].p_name == p2)
-                                {
-                                    if (false == m)
-                                    {
-                                        this->write_new_line();
-                                        this->write_string.function(
-                                            p, static_cast<uint32_t>(strlen(p)), this->write_string.p_user_data);
-                                    }
-                                    m = true;
-                                    this->write_character.function(' ', this->write_character.p_user_data);
-
-                                    this->write_string.function(
-                                        this->p_callbacks[i].p_name,
-                                        static_cast<uint32_t>(strlen(this->p_callbacks[i].p_name)),
-                                        this->write_string.p_user_data);
-                                }
+                                indexes_found[indexes_found_count++] = i;
                             }
                         }
 
-                        if (false == m && nullptr != p)
+                        this->clear_line(this->line_buffer_size + a_prompt.length());
+                        this->write_string.function(a_prompt, this->write_string.p_user_data);
+                        this->line_buffer_size = 0;
+
+                        if (1 == indexes_found_count)
                         {
-                            this->clear_line(this->line_buffer_size + a_prompt_length);
-                            this->line_buffer_size = 0;
+                            this->line_buffer_size = a_callbacks[indexes_found[0]].name.length();
 
-                            this->line_buffer_size =
-                                std::min(s::line_buffer_capacity, static_cast<uint32_t>(strlen(p)));
-                            memcpy(this->line_buffer, p, this->line_buffer_size);
-
-                            this->write_string.function(a_p_prompt, a_prompt_length, this->write_string.p_user_data);
-                            this->write_string.function(
-                                this->line_buffer, this->line_buffer_size, this->write_string.p_user_data);
+                            this->write_string.function(a_callbacks[indexes_found[0]].name,
+                                                        this->write_string.p_user_data);
+                            memcpy(
+                                this->line_buffer, a_callbacks[indexes_found[0]].name.data(), this->line_buffer_size);
                         }
-                        else if (true == m && nullptr != p)
+                        else if (0 != indexes_found_count)
                         {
-                            this->line_buffer_size = 0;
                             this->write_new_line();
-                            this->write_string.function(a_p_prompt, a_prompt_length, this->write_string.p_user_data);
+
+                            for (size_t i = 0; i < indexes_found_count; i++)
+                            {
+                                this->write_character.function(' ', this->write_character.p_user_data);
+                                this->write_string.function(a_callbacks[indexes_found[i]].name,
+                                                            this->write_string.p_user_data);
+                            }
+
+                            this->write_new_line();
+                            this->write_string.function(a_prompt, this->write_string.p_user_data);
                         }
                     }
                     break;
@@ -274,15 +247,15 @@ public:
                     default: {
                         if (this->line_buffer_size < s::line_buffer_capacity && '\033' != c[0]
 #ifdef _WIN32
-                            && 0 != c[i]
+                            && 0 != c[char_index]
 #endif
                         )
                         {
-                            this->line_buffer[this->line_buffer_size++] = c[i];
+                            this->line_buffer[this->line_buffer_size++] = c[char_index];
 
                             if (Echo::enabled == a_echo)
                             {
-                                this->write_character.function(c[i], this->write_character.p_user_data);
+                                this->write_character.function(c[char_index], this->write_character.p_user_data);
                             }
                         }
 #ifdef CLI_CAROUSEL
@@ -290,24 +263,23 @@ public:
                         {
                             if (false == this->carousel.is_empty())
                             {
-                                const char* p = 'A' == c[2] ? this->carousel.get_previus() :
-                                                              ('B' == c[2] ? this->carousel.get_next() : nullptr);
+                                std::string_view line_data = 'A' == c[2] ?
+                                                                 this->carousel.get_previus() :
+                                                                 ('B' == c[2] ? this->carousel.get_next() : "");
 
-                                if (nullptr != p)
+                                if (false == line_data.empty())
                                 {
-                                    this->clear_line(this->line_buffer_size + a_prompt_length);
+                                    this->clear_line(this->line_buffer_size + a_prompt.length());
                                     this->line_buffer_size = 0;
 
-                                    this->line_buffer_size                    = static_cast<uint32_t>(strlen(p));
+                                    this->line_buffer_size                    = line_data.length();
                                     this->line_buffer[this->line_buffer_size] = 0;
-                                    memcpy(this->line_buffer, p, this->line_buffer_size);
+                                    memcpy(this->line_buffer, line_data.data(), this->line_buffer_size);
 
-                                    this->write_string.function(
-                                        a_p_prompt, a_prompt_length, this->write_string.p_user_data);
-                                    this->write_string.function(
-                                        this->line_buffer, this->line_buffer_size, this->write_string.p_user_data);
+                                    this->write_string.function(a_prompt, this->write_string.p_user_data);
+                                    this->write_string.function(this->line_buffer, this->write_string.p_user_data);
 
-                                    ap = true;
+                                    escape_handled = true;
                                 }
                             }
                             break;
@@ -330,15 +302,14 @@ private:
     CLI& operator=(const CLI&) = delete;
 #endif
 
-    void execute(const char* a_p_prompt,
-                 uint32_t a_prompt_lenght,
-                 const char* a_p_command_not_found_message,
-                 uint32_t a_command_not_found_message_lenght,
-                 Echo a_echo)
+    template<size_t callbacks_count> void execute(std::string_view a_prompt,
+                                                  std::string_view a_command_not_found_message,
+                                                  const std::array<Callback, callbacks_count>& a_callbacks,
+                                                  Echo a_echo)
     {
 #ifdef CLI_COMMAND_PARAMETERS
-        const char* argv[s::max_parameters_count] = { nullptr };
-        uint32_t argc                             = 0;
+        std::string_view argv[s::max_parameters_count];
+        uint32_t argc = 0;
 #endif
         bool callback_found = false;
 
@@ -347,7 +318,7 @@ private:
 #ifdef CLI_CAROUSEL
         if (0 != this->line_buffer_size)
         {
-            this->carousel.push(this->line_buffer, this->line_buffer_size);
+            this->carousel.push(this->line_buffer);
         }
 #endif
         if (Echo::enabled == a_echo)
@@ -356,44 +327,52 @@ private:
         }
 
 #ifdef CLI_COMMAND_PARAMETERS
-        argv[argc] = strtok(this->line_buffer, " ");
-        while (nullptr != argv[argc] && ++argc < s::max_parameters_count)
+        size_t first = 0;
+        std::string_view strv(this->line_buffer);
+
+        while (first < strv.size())
         {
-            argv[argc] = strtok(nullptr, " ");
+            const size_t second = strv.find_first_of(' ', first);
+
+            if (first != second)
+            {
+                argv[argc++] = strv.substr(first, second - first);
+            }
+
+            if (second == std::string_view::npos)
+            {
+                break;
+            }
+
+            first = second + 1;
         }
 
-        for (uint32_t i = 0;
-             i < this->callbacks_count && false == callback_found && nullptr != argv[0] && this->line_buffer_size > 1;
-             i++)
+        for (size_t i = 0; i < a_callbacks.size() && false == callback_found && this->line_buffer_size > 1; i++)
         {
-            if (0 == strcmp(argv[0], this->p_callbacks[i].p_name))
+            if (0 == a_callbacks[i].name.compare(argv[0]))
             {
-                this->p_callbacks[i].function(argv, argc, this->p_callbacks[i].p_user_data);
+                a_callbacks[i].function(argv, argc, a_callbacks[i].p_user_data);
                 callback_found = true;
             }
         }
 #else
-        for (uint32_t i = 0; i < this->callbacks_count && false == callback_found && this->line_buffer_size > 1; i++)
+        for (uint32_t i = 0; i < a_callbacks.size() && false == callback_found && this->line_buffer_size > 1; i++)
         {
-            if (0 == strcmp(this->line_buffer, this->p_callbacks[i].p_name))
+            if (0 == a_callbacks[i].name.compare(this->line_buffer))
             {
-                this->p_callbacks[i].function(this->p_callbacks[i].p_user_data);
+                a_callbacks[i].function(a_callbacks[i].p_user_data);
                 callback_found = true;
             }
         }
 #endif
         if (false == callback_found && 0 != this->line_buffer_size)
         {
-            if (nullptr != a_p_command_not_found_message)
-            {
-                this->write_string.function(
-                    a_p_command_not_found_message, a_command_not_found_message_lenght, this->write_string.p_user_data);
-            }
+            this->write_string.function(a_command_not_found_message, this->write_string.p_user_data);
 
             this->write_new_line();
         }
 
-        this->write_string.function(a_p_prompt, a_prompt_lenght, this->write_string.p_user_data);
+        this->write_string.function(a_prompt, this->write_string.p_user_data);
     }
 
     void write_new_line()
@@ -410,18 +389,18 @@ private:
             }
             break;
             default: {
-                this->write_string.function("\r\n", 2 * sizeof(char), this->write_string.p_user_data);
+                this->write_string.function("\r\n", this->write_string.p_user_data);
             }
         }
     }
 
-    void clear_line(uint32_t a_length)
+    void clear_line(size_t a_length)
     {
         memset(this->line_buffer, ' ', a_length);
         this->line_buffer[a_length] = 0;
 
         this->write_character.function('\r', this->write_character.p_user_data);
-        this->write_string.function(this->line_buffer, a_length, this->write_string.p_user_data);
+        this->write_string.function(this->line_buffer, this->write_string.p_user_data);
         this->write_character.function('\r', this->write_character.p_user_data);
     }
 
@@ -444,13 +423,10 @@ private:
             }
         }
 
-        void push(const char* a_p_data, uint32_t a_length)
+        void push(std::string_view a_data)
         {
-#ifdef CLI_ASSERT
-            CLI_ASSERT(a_length > 0);
-#endif
-            this->buffer[this->write_index][a_length] = 0;
-            memcpy(this->buffer[this->write_index++], a_p_data, a_length);
+            this->buffer[this->write_index][a_data.length()] = 0;
+            memcpy(this->buffer[this->write_index++], a_data.data(), a_data.length());
 
             if (this->write_index == s::carousel_buffer_capacity)
             {
@@ -463,19 +439,19 @@ private:
             }
         }
 
-        const char* get_next() const
+        std::string_view get_next() const
         {
-            const char* p = this->buffer[this->read_index++];
+            std::string_view ret = this->buffer[this->read_index++];
 
             if (this->buffer_size == this->read_index)
             {
                 this->read_index = 0;
             }
 
-            return p;
+            return ret;
         }
 
-        const char* get_previus() const
+        std::string_view get_previus() const
         {
 #ifdef CLI_ASSERT
             CLI_ASSERT(this->buffer_size > 0);
@@ -522,11 +498,8 @@ private:
     New_line_mode_flag new_line_mode_input;
     New_line_mode_flag new_line_mode_output;
 
-    const Callback* p_callbacks;
-    uint32_t callbacks_count;
-
     char line_buffer[s::line_buffer_capacity];
-    uint32_t line_buffer_size;
+    size_t line_buffer_size;
 
 #ifdef CLI_CAROUSEL
     Carousel carousel;
