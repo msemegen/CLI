@@ -38,11 +38,11 @@ public:
 #endif
     {
 #ifdef CLI_COMMAND_PARAMETERS
-        static constexpr uint32_t max_parameters_count = 10u;
+        static constexpr size_t max_parameters_count = 10u;
 #endif
-        static constexpr uint32_t input_buffer_capacity    = 3u;
-        static constexpr uint32_t line_buffer_capacity     = 128u;
-        static constexpr uint32_t carousel_buffer_capacity = 5u;
+        static constexpr size_t input_buffer_capacity    = 3u;
+        static constexpr size_t line_buffer_capacity     = 128u;
+        static constexpr size_t carousel_buffer_capacity = 5u;
 
 #ifndef CML
         s()         = delete;
@@ -85,7 +85,7 @@ public:
 
     struct Read_character_handler
     {
-        using Function = uint32_t (*)(char* a_p_buffer, uint32_t a_buffer_size, void* a_p_user_data);
+        using Function = size_t (*)(char* a_p_buffer, size_t a_buffer_size, void* a_p_user_data);
 
         Function function = nullptr;
         void* p_user_data = nullptr;
@@ -94,7 +94,7 @@ public:
 #ifdef CLI_COMMAND_PARAMETERS
     struct Callback
     {
-        using Function = void (*)(std::string_view a_argv[], uint32_t a_argc, void* a_p_user_data);
+        using Function = void (*)(std::string_view a_argv[], size_t a_argc, void* a_p_user_data);
 
         std::string_view name;
 
@@ -154,16 +154,16 @@ public:
                                                  Echo a_echo)
     {
         char c[s::input_buffer_capacity] = { 0 };
-        uint32_t r = this->read_character.function(c, sizeof(c) / sizeof(c[0]), this->read_character.p_user_data);
+        size_t r = this->read_character.function(c, sizeof(c) / sizeof(c[0]), this->read_character.p_user_data);
 
         if (0 != r)
         {
 #ifdef CLI_CAROUSEL
             bool escape_handled = false;
 #endif
-            for (uint32_t char_index = 0; char_index < r
+            for (size_t char_index = 0; char_index < r
 #ifdef CLI_CAROUSEL
-                                          && false == escape_handled
+                                        && false == escape_handled
 #endif
                  ;
                  char_index++)
@@ -200,12 +200,13 @@ public:
                     break;
 #ifdef CLI_AUTOCOMPLETION
                     case '\t': {
+#ifdef CLI_ASSERT
+                        CLI_ASSERT(s::line_buffer_capacity > this->line_buffer_size);
+#endif
                         size_t indexes_found[callbacks_count];
                         size_t indexes_found_count = 0;
 
-                        this->line_buffer[this->line_buffer_size > s::line_buffer_capacity ? s::line_buffer_capacity :
-                                                                                             this->line_buffer_size] =
-                            0;
+                        this->line_buffer[this->line_buffer_size] = 0;
                         for (size_t i = 0; i < a_callbacks.size(); i++)
                         {
                             if (std::string_view::npos != a_callbacks[i].name.find(this->line_buffer))
@@ -245,7 +246,7 @@ public:
                     break;
 #endif
                     default: {
-                        if (this->line_buffer_size < s::line_buffer_capacity && '\033' != c[0]
+                        if (this->line_buffer_size + 1 < s::line_buffer_capacity && '\033' != c[0]
 #ifdef _WIN32
                             && 0 != c[char_index]
 #endif
@@ -309,10 +310,9 @@ private:
     {
 #ifdef CLI_COMMAND_PARAMETERS
         std::string_view argv[s::max_parameters_count];
-        uint32_t argc = 0;
+        size_t argc = 0;
 #endif
-        bool callback_found = false;
-
+        bool callback_found                       = false;
         this->line_buffer[this->line_buffer_size] = 0;
 
 #ifdef CLI_CAROUSEL
@@ -356,7 +356,7 @@ private:
             }
         }
 #else
-        for (uint32_t i = 0; i < a_callbacks.size() && false == callback_found && this->line_buffer_size > 1; i++)
+        for (size_t i = 0; i < a_callbacks.size() && false == callback_found && this->line_buffer_size > 1; i++)
         {
             if (0 == a_callbacks[i].name.compare(this->line_buffer))
             {
@@ -417,7 +417,7 @@ private:
             , write_index(0)
             , buffer_size(0)
         {
-            for (uint32_t i = 0; i < s::carousel_buffer_capacity; i++)
+            for (size_t i = 0; i < s::carousel_buffer_capacity; i++)
             {
                 memset(this->buffer[i], 0x0u, sizeof(this->buffer[i]));
             }
@@ -485,9 +485,9 @@ private:
     private:
         char buffer[CLI::s::carousel_buffer_capacity][CLI::s::line_buffer_capacity];
 
-        mutable uint32_t read_index;
-        uint32_t write_index;
-        uint32_t buffer_size;
+        mutable size_t read_index;
+        size_t write_index;
+        size_t buffer_size;
     };
 #endif
 
